@@ -1,0 +1,189 @@
+<html>
+    <head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<meta name="author" content="Rene Bartsch, B.Sc. Informatics, <rene@bartschnet.de>">
+	<noscript><div id="noscript">!!! Sorry, ECMAscript/Javascript not available !!!</div></noscript>
+	<title>Blockchain-Authenticated Transport Layer Security (BATLS) - X.509 certificate generation and registration</title>
+
+	<!-- X.509 Forge Javascript libraries (https://github.com/digitalbazaar/forge) -->
+	<script language="JavaScript" type="text/javascript" src="forge.min.js"></script>
+
+	<!-- Javascript functions -->
+	<script language="javascript" type="text/javascript">
+
+/*
+	    function registerInBlockchain(identity, fingerprint) {
+		alert("Adding Identity: " + identity + "\nand\nFingerprint: " + fingerprint\n to blockchain);
+	    }
+*/
+
+	    /**
+	     * Create a self-signed X.509 client-certificate.
+	     *
+	     * @param	organizationName	string	X.509 OrganizationName.
+	     * @param	organizationalUnitName	string	X.509 OrganizationalUnitName.
+	     * @param	commonName		string	X.509 CommonName.
+	     * @param	subjectAltNames		string	Array of X.509 Subject Alternate dnsNames without CommonName suffix.
+	     * @param	password		string	PKCS12 Import password.
+	     * @param	ttl			uint	Certificate Time-To-Live in seconds (NOW + TTL = X.509 certificate expiration date).
+	     *
+	     * @return				string	Hex-encoded fingerprint of certificate (same hash algorithm like signature algotrithm)
+	     *
+	     * @pre	Digital Bazaar Forge library (https://github.com/digitalbazaar/forge) must be available/included.
+	     * @post	Nothing.
+	     *
+	     *
+	     *
+	     */
+	    function generateX509Certificate(organizationName, organizationalUnitName, commonName, subjectAltNames, password, ttl) {
+
+		// Create X.509 certificate object
+		var cert = forge.pki.createCertificate();
+
+		// Generate 4096-bit RSA keypair
+//		var keys = forge.pki.rsa.generateKeyPair(4096);
+		var keys = forge.pki.rsa.generateKeyPair(512);
+
+		// Add public key to certificate
+		cert.publicKey = keys.publicKey;
+
+		// Set serial number
+		cert.serialNumber = '0';
+
+		// Set certificate start date to NOW
+		cert.validity.notBefore = new Date();
+
+		// Set certificate expiration date to NOW + ttl seconds
+		cert.validity.notAfter = new Date();
+		cert.validity.notAfter.setSeconds(cert.validity.notAfter.getSeconds() + ttl);
+
+		// Set issuer and subject attributes
+		var attrs = [{
+			name: 'organizationName',
+			value: organizationName
+		    }, {
+			name: 'organizationalUnitName',
+			value: organizationalUnitName
+		    }, {
+			name: 'commonName',
+			value: commonName
+		}];
+		cert.setIssuer(attrs);
+		cert.setSubject(attrs);
+
+
+
+		// Create subject alternative names for extension constraints
+		var altNames = [];
+		if (subjectAltNames !== null) {
+		    for (index = 0; index < subjectAltNames.length; ++index) {
+			altNames[index] = {
+						type: 2,
+						value: subjectAltNames[index] + "." + commonName + ".bit"
+					}
+		    }
+		}
+
+		// Add extension constraints
+		cert.setExtensions([
+		    {
+			name: 'basicConstraints',
+			cA: false
+		    }, {
+			name: 'subjectAltName',
+			altNames: altNames
+		    }
+		]);
+
+
+		// Create SHA1 hash object (SHA256 not supported by Firefox)
+		var hash = forge.md.sha1.create();
+
+		// Self-sign certificate
+		cert.sign(keys.privateKey, hash);
+
+		// Wrap ASN.1 with private key into password-protected PKCS12-container (Chrome/Firefox can only handle 3DES encryption)
+		var pkcs12 = forge.pkcs12.toPkcs12Asn1(keys.privateKey, [cert], password, {algorithm: '3des'});
+
+		// Clear RSA key-pair and password for security reasons
+//		keys = null;
+		password = null;
+
+		// Convert PKCS12 to DER format
+		var pkcs12Der = forge.asn1.toDer(pkcs12).getBytes();
+
+
+		// Store certificate on disk
+		var a = document.createElement('a');
+		a.download = 'Namecoin-' + commonName + ".p12";
+//		a.setAttribute('href','data:application/x-x509-user-cert,' + pkcs12Der);
+		a.setAttribute('href','data:application/x-pkcs12;base64,' + forge.util.encode64(pkcs12Der));
+		a.appendChild(document.createTextNode('Click to Download Client Certificate'));
+		document.body.appendChild(a);
+
+/*
+		// Import certificate into browser
+		var iframe = document.createElement('iframe');
+//		iframe.setAttribute('style', 'display: none;');
+		iframe.setAttribute('src','data:application/x-x509-user-cert;base64,' + forge.util.encode64(pkcs12Der));
+		document.body.appendChild(iframe);
+*/
+
+
+		// Calculate and return certificate fingerprint in hexa-decimal notation
+		var asn1 = forge.pki.certificateToAsn1(cert);
+		var der = forge.asn1.toDer(asn1);
+		var fingerprint = forge.md.sha1.create();
+		fingerprint.update(der.bytes());
+		return(fingerprint.digest().toHex());
+	    }
+
+
+	    function getFormData() {
+		var rpcaddress      = document.getElementById("rpcaddress").value;
+		var rpcport         = document.getElementById("rpcport").value;
+		var rpcuser         = document.getElementById("rpcuser").value;
+		var rpcpassword     = document.getElementById("rpcpassword").value;
+		var identity        = document.getElementById("identity").value;
+		var subjectAltNames = document.getElementById("subjectAltNames").value;
+		var password1       = document.getElementById("password1").value;
+		var password2       = document.getElementById("password2").value;
+
+		alert(
+		      "\nRPCAddress:      " + rpcaddress
+		    + "\nRPCPort:         " + rpcport
+		    + "\nRPCUser:         " + rpcuser
+		    + "\nRPCPassword:     " + rpcpassword
+		    + "\nIdentity:        " + identity
+		    + "\nSubjectAltNames: " + subjectAltNames
+		    + "\nPassword1:       " + password1
+		    + "\nPassword2:       " + password2
+		);
+
+		alert("Generating RSA keypair. This can take a lot of time ...");
+//		var result = generateX509Certificate("InternetCommunity", "Namecoin", identity, ["www", "mail"], password1, (32000 * 10 * 60));
+		var result = generateX509Certificate("InternetCommunity", "Namecoin", identity, null, password1, (32000 * 10 * 60));
+		alert("Fingerprint: " + result);
+
+	    }
+
+	</script>
+
+    </head>
+    <body>
+	<form>
+	    <div>RPCAddress:  <input type="text"     id="rpcaddress"  name="rpcaddress"  value="127.0.0.1"></div>
+	    <div>RPCPort:     <input type="text"     id="rpcport"     name="rpcport"     value="8336"     ></div>
+	    <div>RPCUser:     <input type="text"     id="rpcuser"     name="rpcuser"     value=""    ></div>
+	    <div>RPCPassword: <input type="text"     id="rpcpassword" name="rpcpassword" value=""></div>
+	    <div>Identity:    <select id="identity" name="identity">
+		<option>JohnDoe</option>
+	    </select></div>
+	    <div>Subdomains:  <input type="textarea" id="subjectAltNames"  name="subjectAltNames"  value=""    ></div>
+	    <div>Password:    <input type="password" id="password1"   name="password1"   value="0815"></div>
+	    <div>Repeat:      <input type="password" id="password2"   name="password2"   value="0815"></div>
+	    <div><input type="button" value="OK" onclick="getFormData();"></div>
+	</form>
+	<div id="certificate"></div>
+    </body>
+</html>
